@@ -1,14 +1,15 @@
 <script>
-  import { appState, createTokenSet, deleteTokenSet, toggleSetActive, selectToken } from '$lib/stores/platform.svelte.js';
+  import { appState, createTokenSet, deleteTokenSet, toggleSetActive } from '$lib/stores/platform.svelte.js';
+  import { SvelteSet } from 'svelte/reactivity';
 
   let { projectId } = $props();
 
   let newSetName = $state('');
   let addingSet = $state(false);
-  let expandedFolders = $state(new Set());
+  let expandedFolders = $state(new SvelteSet());
 
   // Build folder tree from slash-notation names
-  const folderTree = $derived(() => {
+  const folderTree = $derived.by(() => {
     const root = { children: {}, sets: [] };
     for (const set of appState.tokenSets) {
       const parts = set.name.split('/');
@@ -39,12 +40,7 @@
   }
 
   function toggleFolder(name) {
-    if (expandedFolders.has(name)) {
-      expandedFolders.delete(name);
-    } else {
-      expandedFolders.add(name);
-    }
-    expandedFolders = new Set(expandedFolders);
+    if (expandedFolders.has(name)) { expandedFolders.delete(name); } else { expandedFolders.add(name); }
   }
 
   function tokenCount(set) {
@@ -93,15 +89,11 @@
         <button class="btn-primary btn-xs" onclick={() => addingSet = true}>Create your first set</button>
       </div>
     {:else}
-      {#each Object.entries(folderTree().children) as [folderName, folder]}
-        {@const fullPath = folderName}
-        {@const isExpanded = expandedFolders.has(fullPath)}
+      {#each Object.entries(folderTree.children) as [folderName, folder] (folderName)}
+        {@const isExpanded = expandedFolders.has(folderName)}
         <div class="folder">
-          <button class="folder-btn" onclick={() => toggleFolder(fullPath)}>
-            <svg
-              width="12" height="12" viewBox="0 0 12 12" fill="none"
-              class="chevron" class:rotated={isExpanded}
-            >
+          <button class="folder-btn" onclick={() => toggleFolder(folderName)}>
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" class="chevron" class:rotated={isExpanded}>
               <path d="M4 2l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
             </svg>
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
@@ -112,28 +104,28 @@
           </button>
           {#if isExpanded}
             <div class="folder-children animate-fade-in">
-              {#each folder.sets as set}
-                <SetItem {set} indent={1} />
+              {#each folder.sets as set (set.id)}
+                {@render setItem(set, 1)}
               {/each}
             </div>
           {/if}
         </div>
       {/each}
 
-      {#each folderTree().sets as set}
-        <SetItem {set} indent={0} />
+      {#each folderTree.sets as set (set.id)}
+        {@render setItem(set, 0)}
       {/each}
     {/if}
   </div>
 </aside>
 
-{#snippet SetItem(set, indent)}
+{#snippet setItem(set, indent)}
   <div
     class="set-item"
     class:active={appState.selectedSetId === set.id}
-    style:padding-left={`${8 + indent * 16}px`}
+    style:padding-left="{8 + indent * 16}px"
   >
-    <label class="set-checkbox-label">
+    <label class="set-checkbox-label" title="Toggle active">
       <input
         type="checkbox"
         checked={appState.activeSetIds.includes(set.id)}
@@ -147,7 +139,6 @@
     >
       <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
         <rect x="1" y="1" width="10" height="10" rx="1.5" stroke="currentColor" stroke-width="1.2"/>
-        <path d="M3.5 6h5M6 3.5v5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
       </svg>
       <span class="set-name-text">{set.name.split('/').pop()}</span>
     </button>
@@ -221,6 +212,7 @@
     color: var(--color-text-primary);
     outline: none;
     margin-bottom: 6px;
+    box-sizing: border-box;
   }
 
   .set-input:focus {
@@ -249,18 +241,14 @@
     color: var(--color-text-tertiary);
   }
 
-  .empty-icon {
-    opacity: 0.4;
-  }
+  .empty-icon { opacity: 0.4; }
 
   .empty-state p {
     font-size: 12px;
     margin: 0;
   }
 
-  .folder {
-    margin: 1px 0;
-  }
+  .folder { margin: 1px 0; }
 
   .folder-btn {
     display: flex;
@@ -287,9 +275,7 @@
     flex-shrink: 0;
   }
 
-  .chevron.rotated {
-    transform: rotate(90deg);
-  }
+  .chevron.rotated { transform: rotate(90deg); }
 
   .folder-name {
     flex: 1;
@@ -307,28 +293,18 @@
     border-radius: 8px;
   }
 
-  .folder-children {
-    margin-left: 0;
-  }
-
   .set-item {
     display: flex;
     align-items: center;
     gap: 4px;
     padding: 4px 8px;
-    cursor: pointer;
     transition: background 0.12s;
     border-radius: 3px;
     margin: 1px 4px;
   }
 
-  .set-item:hover {
-    background: var(--color-surface-3);
-  }
-
-  .set-item.active {
-    background: var(--color-accent-muted);
-  }
+  .set-item:hover { background: var(--color-surface-3); }
+  .set-item.active { background: var(--color-accent-muted); }
 
   .set-checkbox-label {
     display: flex;
@@ -408,8 +384,5 @@
     color: var(--color-text-primary);
   }
 
-  .btn-xs {
-    padding: 3px 8px;
-    font-size: 11px;
-  }
+  .btn-xs { padding: 3px 8px; font-size: 11px; }
 </style>

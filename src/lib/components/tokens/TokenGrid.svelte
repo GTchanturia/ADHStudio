@@ -1,6 +1,6 @@
 <script>
   import { onMount } from 'svelte';
-  import { appState, createToken, selectToken } from '$lib/stores/platform.svelte.js';
+  import { appState } from '$lib/stores/platform.svelte.js';
   import TokenCard from './TokenCard.svelte';
   import AddTokenModal from './AddTokenModal.svelte';
 
@@ -8,22 +8,19 @@
 
   let containerEl = $state(null);
   let containerWidth = $state(800);
-  let addModalOpen = $state(false);
-
-  // Virtualization state
-  let scrollTop = $state(0);
   let containerHeight = $state(600);
+  let scrollTop = $state(0);
+  let addModalOpen = $state(false);
 
   const CARD_WIDTH = 180;
   const CARD_HEIGHT = 140;
   const GAP = 10;
   const HEADER_H = 48;
-  const OVERSCAN = 5;
+  const OVERSCAN_PX = 400;
 
   const cols = $derived(Math.max(1, Math.floor((containerWidth + GAP) / (CARD_WIDTH + GAP))));
 
-  // Group tokens by type
-  const grouped = $derived(() => {
+  const grouped = $derived.by(() => {
     const types = ['color', 'typography', 'spacing', 'border', 'shadow', 'other'];
     return types.map(type => ({
       type,
@@ -31,10 +28,10 @@
     })).filter(g => g.items.length > 0);
   });
 
-  // Build a flat list of items (headers and cards) for virtualization
-  const flatItems = $derived(() => {
+  // Flat list of virtual items: headers + rows
+  const flatItems = $derived.by(() => {
     const result = [];
-    for (const group of grouped()) {
+    for (const group of grouped) {
       result.push({ kind: 'header', type: group.type, label: group.type.charAt(0).toUpperCase() + group.type.slice(1), count: group.items.length });
       const rows = Math.ceil(group.items.length / cols);
       for (let r = 0; r < rows; r++) {
@@ -44,49 +41,51 @@
     return result;
   });
 
-  // Calculate positions for each flat item
-  const positions = $derived(() => {
+  // Y-position for each flat item
+  const itemPositions = $derived.by(() => {
+    const positions = [];
     let y = 0;
-    return flatItems().map(item => {
-      const pos = { y, h: item.kind === 'header' ? HEADER_H : CARD_HEIGHT + GAP };
-      y += pos.h;
-      return pos;
-    });
-  });
-
-  const totalHeight = $derived(positions().reduce((acc, p) => Math.max(acc, p.y + p.h), 0));
-
-  // Visible range
-  const visibleRange = $derived(() => {
-    const items = flatItems();
-    const pos = positions();
-    let start = 0, end = items.length;
-    for (let i = 0; i < pos.length; i++) {
-      if (pos[i].y + pos[i].h < scrollTop - OVERSCAN * (CARD_HEIGHT + GAP)) start = i;
-      if (pos[i].y > scrollTop + containerHeight + OVERSCAN * (CARD_HEIGHT + GAP)) { end = i; break; }
+    for (const item of flatItems) {
+      const h = item.kind === 'header' ? HEADER_H : CARD_HEIGHT + GAP;
+      positions.push({ y, h });
+      y += h;
     }
-    return { start, end };
+    return positions;
   });
 
-  const visibleItems = $derived(() => {
-    const { start, end } = visibleRange();
-    return flatItems().slice(start, end).map((item, i) => ({
-      ...item,
-      absIndex: start + i,
-      top: positions()[start + i]?.y ?? 0
-    }));
+  const totalHeight = $derived(
+    itemPositions.length > 0
+      ? itemPositions[itemPositions.length - 1].y + itemPositions[itemPositions.length - 1].h
+      : 0
+  );
+
+  // Visible items based on current scrollTop
+  const visibleItems = $derived.by(() => {
+    const viewStart = scrollTop - OVERSCAN_PX;
+    const viewEnd = scrollTop + containerHeight + OVERSCAN_PX;
+    return flatItems
+      .map((item, i) => ({ ...item, index: i, top: itemPositions[i]?.y ?? 0 }))
+      .filter(item => {
+        const pos = itemPositions[item.index];
+        if (!pos) return false;
+        return pos.y + pos.h > viewStart && pos.y < viewEnd;
+      });
   });
 
   onMount(() => {
     const ro = new ResizeObserver(entries => {
-      for (const entry of entries) {
-        containerWidth = entry.contentRect.width;
-        containerHeight = entry.contentRect.height;
+      for (const e of entries) {
+        containerWidth = e.contentRect.width;
+        containerHeight = e.contentRect.height;
       }
     });
     if (containerEl) ro.observe(containerEl);
     return () => ro.disconnect();
   });
+
+  function handleScroll() {
+    if (containerEl) scrollTop = containerEl.scrollTop;
+  }
 
   const typeIcons = {
     color: `<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="5" stroke="currentColor" stroke-width="1.3"/><circle cx="7" cy="5" r="1.5" fill="currentColor"/><circle cx="4" cy="9" r="1.5" fill="currentColor"/><circle cx="10" cy="9" r="1.5" fill="currentColor"/></svg>`,
@@ -98,7 +97,11 @@
   };
 </script>
 
-<div class="token-grid-container" bind:this={containerEl} onscroll={e => scrollTop = e.target.scrollTop}>
+<div
+  class="token-grid-container"
+  bind:this={containerEl}
+  onscroll={handleScroll}
+>
   {#if tokens.length === 0}
     <div class="empty-grid">
       <div class="empty-grid-icon">
@@ -111,18 +114,19 @@
         </svg>
       </div>
       <h3>No tokens yet</h3>
-      <p>Start building your design system by adding your first token</p>
-      <button class="btn-primary" onclick={() => addModalOpen = true}>
-        Add Token
-      </button>
+      <p>
+        {#if appState.activeSetIds.length === 0}
+          Activate a token set in the sidebar to see tokens, or create a new set.
+        {:else}
+          Add your first token to get started.
+        {/if}
+      </p>
+      <button class="btn-primary" onclick={() => addModalOpen = true}>Add Token</button>
     </div>
   {:else}
     <div class="virtual-scroller" style:height="{totalHeight}px">
-      {#each visibleItems() as item (item.absIndex)}
-        <div
-          class="virtual-item"
-          style:top="{item.top}px"
-        >
+      {#each visibleItems as item (item.index)}
+        <div class="virtual-item" style:top="{item.top}px">
           {#if item.kind === 'header'}
             <div class="type-group-header">
               <div class="type-header-icon type-{item.type}">
@@ -143,7 +147,6 @@
     </div>
   {/if}
 
-  <!-- Add token FAB -->
   <button class="add-token-fab" onclick={() => addModalOpen = true} title="Add token">
     <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
       <path d="M8 2v12M2 8h12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
@@ -227,8 +230,7 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    height: 100%;
-    min-height: 400px;
+    height: calc(100vh - 160px);
     gap: 12px;
     color: var(--color-text-tertiary);
     text-align: center;
@@ -247,11 +249,12 @@
     font-size: 13px;
     margin: 0;
     max-width: 280px;
+    line-height: 1.5;
   }
 
   .add-token-fab {
     position: fixed;
-    bottom: 24px;
+    bottom: 36px;
     right: 24px;
     width: 48px;
     height: 48px;

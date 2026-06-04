@@ -133,23 +133,26 @@ export async function updateToken(tokenId, updates) {
     .select('*')
     .single();
 
-  if (error) throw error;
+  if (error) { notify(error.message, 'error'); throw error; }
 
   appState.tokenSets = appState.tokenSets.map(s => ({
     ...s,
     tokens: s.tokens?.map(t => t.id === tokenId ? data : t) ?? []
   }));
 
+  notify('Token updated');
   return data;
 }
 
 export async function deleteToken(tokenId) {
-  await supabase.from('tokens').delete().eq('id', tokenId);
+  const { error } = await supabase.from('tokens').delete().eq('id', tokenId);
+  if (error) { notify(error.message, 'error'); throw error; }
   appState.tokenSets = appState.tokenSets.map(s => ({
     ...s,
     tokens: s.tokens?.filter(t => t.id !== tokenId) ?? []
   }));
   if (appState.selectedTokenId === tokenId) appState.selectedTokenId = null;
+  notify('Token deleted', 'info');
 }
 
 export function selectToken(tokenId) {
