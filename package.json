@@ -44,5 +44,11 @@
 	},
 	"keywords": [
 		"svelte"
-	]
+	],
+	"dependencies": {
+		"@supabase/supabase-js": "^2.107.0",
+		"@tanstack/virtual-core": "^3.17.0",
+		"culori": "^4.0.2",
+		"uuid": "^14.0.0"
+	}
 }
