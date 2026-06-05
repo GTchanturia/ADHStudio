@@ -93,7 +93,7 @@
     </div>
   {:else if token.type === 'spacing'}
     <div class="spacing-preview-area">
-      <div class="spacing-visual" style:width="{clamp(parseFloat(displayValue) * 3, 8, 100)}%"></div>
+      <div class="spacing-visual" style:width="{Math.min(Math.max(parseFloat(displayValue) * 3, 8), 100)}%"></div>
       <span class="spacing-label">{displayValue}</span>
     </div>
   {:else if token.type === 'typography'}
