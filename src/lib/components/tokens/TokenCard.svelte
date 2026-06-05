@@ -7,6 +7,8 @@
   let editing = $state(false);
   let editValue = $state('');
   let saving = $state(false);
+  let renaming = $state(false);
+  let renameValue = $state('');
 
   const resolved = $derived(resolveToken(token.name, tokenMap));
   const displayValue = $derived(resolved.value ?? token.value?.value ?? token.value ?? '');
@@ -47,33 +49,87 @@
 
   async function duplicateToken(e) {
     e?.stopPropagation();
-    const suffix = '-copy';
-    const baseName = token.name;
     const setId = token.token_set_id;
     if (!setId) return;
+    const suffix = '-copy';
+    const newName = token.name + suffix;
     try {
-      await createToken({
+      const result = await createToken({
         token_set_id: setId,
-        name: baseName + suffix,
+        name: newName,
         type: token.type,
         layer: token.layer,
         value: { value: token.value?.value ?? token.value },
         description: token.description ?? ''
       });
+      if (result) {
+        renameValue = newName;
+        renaming = true;
+        selectToken(result.id);
+      }
     } catch {
       // error handled in store
     }
   }
+
+  function startRenaming(e) {
+    e?.stopPropagation();
+    renameValue = token.name;
+    renaming = true;
+  }
+
+  async function saveRename() {
+    if (!renameValue.trim() || renameValue === token.name) {
+      renaming = false;
+      return;
+    }
+    try {
+      await updateToken(token.id, { name: renameValue.trim() });
+      renaming = false;
+    } catch {
+      // error handled in store
+    }
+  }
+
+  function cancelRename() {
+    renaming = false;
+    renameValue = '';
+  }
+
+  function handleRowKeydown(e) {
+    if (e.key === 'Enter' && !editing && !renaming) selectToken(token.id);
+    if (e.key === 'F2') startRenaming(e);
+  }
+
+  function handleGlobalRename() {
+    if (isSelected && !renaming) {
+      renameValue = token.name;
+      renaming = true;
+    }
+  }
+
+  function handleGlobalDuplicate() {
+    if (isSelected) duplicateToken(new Event('click'));
+  }
+
+  $effect(() => {
+    window.addEventListener('token-rename', handleGlobalRename);
+    window.addEventListener('token-duplicate', handleGlobalDuplicate);
+    return () => {
+      window.removeEventListener('token-rename', handleGlobalRename);
+      window.removeEventListener('token-duplicate', handleGlobalDuplicate);
+    };
+  });
 </script>
 
 <div
   class="token-row"
   class:selected={isSelected}
   class:error={hasError}
-  onclick={() => { if (!editing) selectToken(token.id); }}
+  onclick={() => { if (!editing && !renaming) selectToken(token.id); }}
   role="button"
   tabindex="0"
-  onkeydown={e => { if (e.key === 'Enter' && !editing) selectToken(token.id); }}
+  onkeydown={handleRowKeydown}
 >
   <!-- Color swatch -->
   <div class="row-swatch">
@@ -129,19 +185,41 @@
   </div>
 
   <!-- Token name -->
-  <span class="row-name" title={token.name}>
-    {#if isAliasRef}
-      <svg class="alias-icon" width="10" height="10" viewBox="0 0 10 10" fill="none">
-        <path d="M6 1l3 4-3 4M1 5h8" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
-      </svg>
+  <div class="row-name-cell">
+    {#if renaming}
+      <div class="inline-rename" onclick={e => e.stopPropagation()}>
+        <input
+          type="text"
+          bind:value={renameValue}
+          class="inline-rename-input"
+          onkeydown={e => { if (e.key === 'Enter') saveRename(); if (e.key === 'Escape') cancelRename(); }}
+          autofocus
+        />
+        <button class="inline-save" onclick={saveRename} title="Save">
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+            <path d="M2 5l2 2 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+        <button class="inline-cancel" onclick={cancelRename} title="Cancel">
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+            <path d="M2 2l6 6M8 2l-6 6" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+          </svg>
+        </button>
+      </div>
+    {:else}
+      <span class="row-name" title={token.name}>
+        {#if isAliasRef}
+          <svg class="alias-icon" width="10" height="10" viewBox="0 0 10 10" fill="none">
+            <path d="M6 1l3 4-3 4M1 5h8" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        {/if}
+        {token.name}
+      </span>
+      {#if token.description}
+        <span class="row-desc-indicator" title={token.description}>i</span>
+      {/if}
     {/if}
-    {token.name}
-  </span>
-
-  <!-- Description indicator -->
-  {#if token.description}
-    <span class="row-desc-indicator" title={token.description}>i</span>
-  {/if}
+  </div>
 
   <!-- Value -->
   <div class="row-value-cell">
@@ -160,11 +238,16 @@
             <path d="M2 5l2 2 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
         </button>
+        <button class="inline-cancel" onclick={cancelEdit} title="Cancel">
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+            <path d="M2 2l6 6M8 2l-6 6" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+          </svg>
+        </button>
       </div>
     {:else if hasError}
       <span class="value-error" title={resolved.error}>{resolved.error?.slice(0, 30)}</span>
     {:else}
-      <span class="row-value" title={String(displayValue)} ondblclick={startEditing} role="button" tabindex="-1">{displayValue}</span>
+      <span class="row-value" title="Double-click to edit" ondblclick={startEditing} role="button" tabindex="-1">{displayValue}</span>
     {/if}
   </div>
 
@@ -176,15 +259,15 @@
 
   <!-- Actions -->
   <div class="row-actions">
+    <button class="row-action-btn" onclick={startRenaming} title="Rename (F2)">
+      <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
+        <path d="M7 2l2 2-5 5H2V7l5-5z" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round"/>
+      </svg>
+    </button>
     <button class="row-action-btn" onclick={duplicateToken} title="Duplicate token">
       <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
         <rect x="3" y="3" width="7" height="7" rx="1" stroke="currentColor" stroke-width="1.1"/>
         <path d="M7 3V2a1 1 0 00-1-1H2a1 1 0 00-1 1v4a1 1 0 001 1h1" stroke="currentColor" stroke-width="1.1"/>
-      </svg>
-    </button>
-    <button class="row-action-btn" onclick={startEditing} title="Edit value">
-      <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
-        <path d="M7 2l2 2-5 5H2V7l5-5z" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round"/>
       </svg>
     </button>
     <button class="row-action-btn danger" onclick={e => { e.stopPropagation(); deleteToken(token.id); }} title="Delete">
@@ -214,6 +297,7 @@
 
   .token-row.selected {
     background: var(--color-accent-muted);
+    border-bottom-color: transparent;
   }
 
   .token-row.error {
@@ -233,10 +317,16 @@
   .swatch-color {
     width: 24px;
     height: 24px;
-    border-radius: 4px;
+    border-radius: 5px;
     border: 1px solid rgba(255,255,255,0.08);
     position: relative;
     overflow: hidden;
+    transition: transform 0.12s, box-shadow 0.12s;
+  }
+
+  .token-row:hover .swatch-color {
+    transform: scale(1.1);
+    box-shadow: 0 0 0 2px var(--color-surface-4);
   }
 
   .swatch-alias {
@@ -260,7 +350,7 @@
   .swatch-error {
     width: 24px;
     height: 24px;
-    border-radius: 4px;
+    border-radius: 5px;
     background: rgba(239,68,68,0.1);
     display: flex;
     align-items: center;
@@ -270,11 +360,14 @@
   .swatch-type-icon {
     width: 24px;
     height: 24px;
-    border-radius: 4px;
+    border-radius: 5px;
     display: flex;
     align-items: center;
     justify-content: center;
+    transition: transform 0.12s;
   }
+
+  .token-row:hover .swatch-type-icon { transform: scale(1.1); }
 
   .type-spacing-bg { background: rgba(52,211,153,0.12); color: var(--color-token-spacing); }
   .type-typography-bg { background: rgba(167,139,250,0.12); color: var(--color-token-typography); }
@@ -282,14 +375,20 @@
   .type-shadow-bg { background: rgba(96,165,250,0.12); color: var(--color-token-shadow); }
   .type-other-bg { background: rgba(148,163,184,0.12); color: var(--color-token-other); }
 
-  /* Name */
+  /* Name cell */
+  .row-name-cell {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
   .row-name {
     font-size: 12px;
     font-weight: 600;
     font-family: var(--font-mono);
     color: var(--color-text-primary);
-    flex: 1;
-    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -307,7 +406,10 @@
     font-size: 8px; font-weight: 700; font-style: italic;
     display: flex; align-items: center; justify-content: center;
     flex-shrink: 0;
+    transition: background 0.12s;
   }
+
+  .token-row:hover .row-desc-indicator { background: var(--color-surface-5); }
 
   /* Value */
   .row-value-cell {
@@ -325,6 +427,7 @@
     white-space: nowrap;
     display: block;
     cursor: text;
+    transition: color 0.12s;
   }
 
   .row-value:hover { color: var(--color-accent); }
@@ -338,13 +441,14 @@
     display: block;
   }
 
-  .inline-edit {
+  /* Inline edits */
+  .inline-edit, .inline-rename {
     display: flex;
     align-items: center;
     gap: 3px;
   }
 
-  .inline-edit-input {
+  .inline-edit-input, .inline-rename-input {
     width: 100%;
     background: var(--color-surface-4);
     border: 1px solid var(--color-accent);
@@ -357,23 +461,25 @@
     min-width: 0;
   }
 
-  .inline-save {
+  .inline-save, .inline-cancel {
     display: flex;
     align-items: center;
     justify-content: center;
     width: 18px;
     height: 18px;
     border-radius: 3px;
-    background: var(--color-accent-muted);
     border: none;
-    color: var(--color-accent);
     cursor: pointer;
     flex-shrink: 0;
     transition: all 0.12s;
   }
 
+  .inline-save { background: var(--color-accent-muted); color: var(--color-accent); }
   .inline-save:hover { background: var(--color-accent); color: white; }
   .inline-save:disabled { opacity: 0.4; }
+
+  .inline-cancel { background: transparent; color: var(--color-text-tertiary); }
+  .inline-cancel:hover { background: var(--color-surface-4); color: var(--color-text-primary); }
 
   /* Badges */
   .row-badge {
@@ -386,6 +492,11 @@
     letter-spacing: 0.06em;
     text-transform: uppercase;
     flex-shrink: 0;
+    transition: opacity 0.12s;
+  }
+
+  .token-row:not(:hover):not(.selected) .row-badge {
+    opacity: 0.6;
   }
 
   /* Actions */

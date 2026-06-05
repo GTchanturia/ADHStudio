@@ -12,7 +12,7 @@
   let addModalOpen = $state(false);
 
   const ROW_HEIGHT = 37;
-  const HEADER_H = 36;
+  const HEADER_H = 44;
   const OVERSCAN_PX = 600;
 
   // Group tokens by type
@@ -210,20 +210,22 @@
   .type-group-header {
     display: flex;
     align-items: center;
-    gap: 6px;
-    padding: 0 12px;
+    gap: 8px;
+    padding: 0 16px;
     height: 100%;
-    background: var(--color-surface-1);
-    border-bottom: 1px solid var(--color-border);
+    background: var(--color-surface-2);
+    border-bottom: 1px solid var(--color-surface-5);
+    position: sticky;
+    top: 0;
   }
 
   .type-header-icon {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 20px;
-    height: 20px;
-    border-radius: 4px;
+    width: 24px;
+    height: 24px;
+    border-radius: 6px;
   }
 
   .type-header-icon.type-color { color: var(--color-token-color); background: rgba(248,113,113,0.12); }
@@ -234,17 +236,18 @@
   .type-header-icon.type-other { color: var(--color-token-other); background: rgba(148,163,184,0.12); }
 
   .type-header-label {
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 700;
     color: var(--color-text-primary);
+    letter-spacing: -0.01em;
   }
 
   .type-header-count {
     font-size: 10px;
     color: var(--color-text-tertiary);
-    background: var(--color-surface-3);
-    padding: 1px 6px;
-    border-radius: 8px;
+    background: var(--color-surface-4);
+    padding: 2px 8px;
+    border-radius: 10px;
     font-weight: 600;
   }
 

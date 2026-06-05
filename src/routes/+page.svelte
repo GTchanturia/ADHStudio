@@ -126,6 +126,24 @@
         }
       }
 
+      // F2 — rename selected token (dispatch custom event for TokenCard)
+      if (e.key === 'F2' && appState.selectedTokenId) {
+        const active = document.activeElement;
+        if (active?.tagName !== 'INPUT' && active?.tagName !== 'TEXTAREA') {
+          e.preventDefault();
+          window.dispatchEvent(new CustomEvent('token-rename'));
+        }
+      }
+
+      // Ctrl+D — duplicate selected token
+      if (mod && e.key === 'd' && appState.selectedTokenId) {
+        const active = document.activeElement;
+        if (active?.tagName !== 'INPUT' && active?.tagName !== 'TEXTAREA') {
+          e.preventDefault();
+          window.dispatchEvent(new CustomEvent('token-duplicate'));
+        }
+      }
+
       // Escape — close panels in priority order
       if (e.key === 'Escape') {
         if (appState.commandPaletteOpen) { appState.commandPaletteOpen = false; return; }
