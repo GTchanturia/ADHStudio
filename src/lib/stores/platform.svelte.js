@@ -5,6 +5,50 @@
 import { supabase } from '../utils/supabase.js';
 import { buildTokenMap, validateAliases } from '../utils/aliases.js';
 
+const DEFAULT_SETTINGS = {
+  cardSize: 'medium',
+  showDescriptions: true,
+  showLayerBadges: true,
+  showTypeBadges: true,
+  confirmDelete: true,
+  defaultTokenType: 'color',
+  defaultLayer: 'core',
+  exportFormat: 'css',
+  accentColor: '#3b82f6',
+  sidebarWidth: 240,
+  inspectorWidth: 280,
+  colorNotation: 'hex',
+  wcagLevel: 'aa',
+  onboardingDone: false,
+  onboardingStep: 0,
+  shortcuts: {
+    search: 'Ctrl+K',
+    export: 'Ctrl+E',
+    inspector: 'Ctrl+I',
+    preview: 'Ctrl+P',
+    settings: 'Ctrl+,',
+    addToken: 'Ctrl+N',
+    delete: 'Delete',
+    escape: 'Escape',
+    shortcuts: '?',
+    clearFilters: 'Ctrl+Shift+F',
+    selectAll: 'Ctrl+A',
+    duplicate: 'Ctrl+D',
+    undo: 'Ctrl+Z',
+  }
+};
+
+function loadSettings() {
+  try {
+    const stored = localStorage.getItem('token-studio-settings');
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      return { ...DEFAULT_SETTINGS, ...parsed, shortcuts: { ...DEFAULT_SETTINGS.shortcuts, ...(parsed.shortcuts ?? {}) } };
+    }
+  } catch { /* ignore */ }
+  return { ...DEFAULT_SETTINGS };
+}
+
 // ─── App State ────────────────────────────────────────────────────────────────
 
 export const appState = $state({
@@ -19,15 +63,19 @@ export const appState = $state({
   inspectorOpen: true,
   exportPanelOpen: false,
   livePreviewOpen: false,
+  settingsOpen: false,
+  commandPaletteOpen: false,
+  onboardingOpen: false,
   searchQuery: '',
   filterType: 'all',
   filterLayer: 'all',
   isLoading: false,
   isSaving: false,
-  notification: null
+  notification: null,
+  settings: loadSettings(),
 });
 
-// ─── Derived state (exported as getter functions per Svelte 5 module rules) ───
+// ─── Derived state ────────────────────────────────────────────────────────────
 
 export function tokenMap() {
   return buildTokenMap(appState.tokenSets, appState.activeSetIds);
@@ -67,6 +115,30 @@ export function aliasErrors() {
   return validateAliases(tokenMap());
 }
 
+// ─── Settings ─────────────────────────────────────────────────────────────────
+
+export function updateSettings(partial) {
+  appState.settings = { ...appState.settings, ...partial };
+  saveSettings();
+}
+
+export function updateShortcut(key, value) {
+  appState.settings.shortcuts = { ...appState.settings.shortcuts, [key]: value };
+  saveSettings();
+}
+
+export function resetSettings() {
+  appState.settings = { ...DEFAULT_SETTINGS };
+  saveSettings();
+  notify('Settings reset to defaults', 'info');
+}
+
+function saveSettings() {
+  try {
+    localStorage.setItem('token-studio-settings', JSON.stringify(appState.settings));
+  } catch { /* ignore */ }
+}
+
 // ─── Actions ─────────────────────────────────────────────────────────────────
 
 export async function loadProject(projectId) {
@@ -84,6 +156,11 @@ export async function loadProject(projectId) {
     appState.themes = themes ?? [];
     appState.activeSetIds = tokenSets?.map(s => s.id) ?? [];
     if (themes?.[0]) appState.activeThemeId = themes[0].id;
+
+    // Show onboarding for first-time users
+    if (!appState.settings.onboardingDone) {
+      appState.onboardingOpen = true;
+    }
   } finally {
     appState.isLoading = false;
   }
@@ -104,6 +181,7 @@ export async function createTokenSet(name, projectId) {
 }
 
 export async function deleteTokenSet(setId) {
+  if (appState.settings.confirmDelete && !confirm('Delete this token set and all its tokens?')) return;
   const { error } = await supabase.from('token_sets').delete().eq('id', setId);
   if (error) { notify(error.message, 'error'); throw error; }
   appState.tokenSets = appState.tokenSets.filter(s => s.id !== setId);
@@ -112,59 +190,28 @@ export async function deleteTokenSet(setId) {
   notify('Token set deleted', 'info');
 }
 
-export async function renameTokenSet(setId, newName) {
-  const { data, error } = await supabase
-    .from('token_sets')
-    .update({ name: newName, updated_at: new Date().toISOString() })
-    .eq('id', setId)
-    .select('*, tokens(*)')
-    .single();
-  if (error) { notify(error.message, 'error'); throw error; }
-  appState.tokenSets = appState.tokenSets.map(s => s.id === setId ? data : s);
-  notify('Token set renamed');
-}
-
 export async function createToken(tokenData) {
-  const { data, error } = await supabase
-    .from('tokens')
-    .insert(tokenData)
-    .select('*')
-    .single();
-
+  const { data, error } = await supabase.from('tokens').insert(tokenData).select('*').single();
   if (error) { notify(error.message, 'error'); throw error; }
-
   appState.tokenSets = appState.tokenSets.map(s =>
-    s.id === tokenData.token_set_id
-      ? { ...s, tokens: [...(s.tokens ?? []), data] }
-      : s
+    s.id === tokenData.token_set_id ? { ...s, tokens: [...(s.tokens ?? []), data] } : s
   );
-
   notify('Token created');
   return data;
 }
 
 export async function bulkCreateTokens(tokenDataArray) {
-  const { data, error } = await supabase
-    .from('tokens')
-    .insert(tokenDataArray)
-    .select('*');
-
+  const { data, error } = await supabase.from('tokens').insert(tokenDataArray).select('*');
   if (error) { notify(error.message, 'error'); throw error; }
-
-  // Group returned tokens by set and update state
   const bySet = new Map();
   for (const t of (data ?? [])) {
     if (!bySet.has(t.token_set_id)) bySet.set(t.token_set_id, []);
     bySet.get(t.token_set_id).push(t);
   }
-
   appState.tokenSets = appState.tokenSets.map(s => {
     const newTokens = bySet.get(s.id);
-    return newTokens
-      ? { ...s, tokens: [...(s.tokens ?? []), ...newTokens] }
-      : s;
+    return newTokens ? { ...s, tokens: [...(s.tokens ?? []), ...newTokens] } : s;
   });
-
   notify(`${data?.length ?? 0} tokens imported`);
   return data;
 }
@@ -173,27 +220,21 @@ export async function updateToken(tokenId, updates) {
   const { data, error } = await supabase
     .from('tokens')
     .update({ ...updates, updated_at: new Date().toISOString() })
-    .eq('id', tokenId)
-    .select('*')
-    .single();
-
+    .eq('id', tokenId).select('*').single();
   if (error) { notify(error.message, 'error'); throw error; }
-
   appState.tokenSets = appState.tokenSets.map(s => ({
-    ...s,
-    tokens: s.tokens?.map(t => t.id === tokenId ? data : t) ?? []
+    ...s, tokens: s.tokens?.map(t => t.id === tokenId ? data : t) ?? []
   }));
-
   notify('Token updated');
   return data;
 }
 
 export async function deleteToken(tokenId) {
+  if (appState.settings.confirmDelete && !confirm('Delete this token?')) return;
   const { error } = await supabase.from('tokens').delete().eq('id', tokenId);
   if (error) { notify(error.message, 'error'); throw error; }
   appState.tokenSets = appState.tokenSets.map(s => ({
-    ...s,
-    tokens: s.tokens?.filter(t => t.id !== tokenId) ?? []
+    ...s, tokens: s.tokens?.filter(t => t.id !== tokenId) ?? []
   }));
   if (appState.selectedTokenId === tokenId) appState.selectedTokenId = null;
   notify('Token deleted', 'info');
@@ -203,11 +244,8 @@ export async function deleteToken(tokenId) {
 
 export async function createTheme(projectId, name) {
   const { data, error } = await supabase
-    .from('themes')
-    .insert({ project_id: projectId, name, token_set_ids: [...appState.activeSetIds] })
-    .select()
-    .single();
-
+    .from('themes').insert({ project_id: projectId, name, token_set_ids: [...appState.activeSetIds] })
+    .select().single();
   if (error) { notify(error.message, 'error'); throw error; }
   appState.themes = [...appState.themes, data];
   appState.activeThemeId = data.id;
@@ -217,12 +255,8 @@ export async function createTheme(projectId, name) {
 
 export async function updateTheme(themeId, updates) {
   const { data, error } = await supabase
-    .from('themes')
-    .update({ ...updates, updated_at: new Date().toISOString() })
-    .eq('id', themeId)
-    .select()
-    .single();
-
+    .from('themes').update({ ...updates, updated_at: new Date().toISOString() })
+    .eq('id', themeId).select().single();
   if (error) { notify(error.message, 'error'); throw error; }
   appState.themes = appState.themes.map(t => t.id === themeId ? data : t);
   notify('Theme updated');
@@ -230,12 +264,11 @@ export async function updateTheme(themeId, updates) {
 }
 
 export async function deleteTheme(themeId) {
+  if (appState.settings.confirmDelete && !confirm('Delete this theme?')) return;
   const { error } = await supabase.from('themes').delete().eq('id', themeId);
   if (error) { notify(error.message, 'error'); throw error; }
   appState.themes = appState.themes.filter(t => t.id !== themeId);
-  if (appState.activeThemeId === themeId) {
-    appState.activeThemeId = appState.themes[0]?.id ?? null;
-  }
+  if (appState.activeThemeId === themeId) appState.activeThemeId = appState.themes[0]?.id ?? null;
   notify('Theme deleted', 'info');
 }
 
@@ -272,7 +305,44 @@ export function clearFilters() {
   appState.filterLayer = 'all';
 }
 
+export function completeOnboarding() {
+  appState.settings.onboardingDone = true;
+  appState.settings.onboardingStep = 0;
+  appState.onboardingOpen = false;
+  saveSettings();
+}
+
+export function skipOnboarding() {
+  appState.settings.onboardingDone = true;
+  appState.onboardingOpen = false;
+  saveSettings();
+}
+
 export function notify(message, type = 'success') {
   appState.notification = { message, type };
   setTimeout(() => { appState.notification = null; }, 3000);
 }
+
+// ─── Command Palette Actions ─────────────────────────────────────────────────
+
+export const commandPaletteActions = [
+  { id: 'add-token', label: 'Add New Token', category: 'Tokens', icon: 'plus', action: () => { /* handled in page */ } },
+  { id: 'import-tokens', label: 'Import Tokens (JSON)', category: 'Tokens', icon: 'upload', action: () => { /* handled in page */ } },
+  { id: 'export-css', label: 'Export as CSS Variables', category: 'Export', icon: 'download', action: () => { appState.exportPanelOpen = true; } },
+  { id: 'export-tailwind', label: 'Export as Tailwind Config', category: 'Export', icon: 'download', action: () => { appState.exportPanelOpen = true; } },
+  { id: 'export-swift', label: 'Export for Swift/iOS', category: 'Export', icon: 'download', action: () => { appState.exportPanelOpen = true; } },
+  { id: 'export-android', label: 'Export for Android XML', category: 'Export', icon: 'download', action: () => { appState.exportPanelOpen = true; } },
+  { id: 'export-w3c', label: 'Export as W3C JSON', category: 'Export', icon: 'download', action: () => { appState.exportPanelOpen = true; } },
+  { id: 'toggle-inspector', label: 'Toggle Inspector Panel', category: 'View', icon: 'panel', action: () => { appState.inspectorOpen = !appState.inspectorOpen; } },
+  { id: 'toggle-export', label: 'Toggle Export Panel', category: 'View', icon: 'panel', action: () => { appState.exportPanelOpen = !appState.exportPanelOpen; } },
+  { id: 'live-preview', label: 'Open Live Preview', category: 'View', icon: 'eye', action: () => { appState.livePreviewOpen = true; } },
+  { id: 'clear-filters', label: 'Clear All Filters', category: 'Edit', icon: 'filter', action: clearFilters },
+  { id: 'create-theme', label: 'Create New Theme', category: 'Themes', icon: 'palette', action: () => { /* handled in page */ } },
+  { id: 'create-set', label: 'Create New Token Set', category: 'Tokens', icon: 'folder', action: () => { /* handled in page */ } },
+  { id: 'open-settings', label: 'Open Settings', category: 'App', icon: 'gear', action: () => { appState.settingsOpen = true; } },
+  { id: 'show-shortcuts', label: 'Show Keyboard Shortcuts', category: 'Help', icon: 'keyboard', action: () => { /* handled in page */ } },
+  { id: 'show-onboarding', label: 'Restart Onboarding Guide', category: 'Help', icon: 'guide', action: () => { appState.settings.onboardingDone = false; appState.onboardingOpen = true; saveSettings(); } },
+  { id: 'ai-naming', label: 'AI Auto-Naming', category: 'AI', icon: 'sparkle', action: () => { /* handled in page */ } },
+  { id: 'ai-accessibility', label: 'AI Accessibility Audit', category: 'AI', icon: 'sparkle', action: () => { /* handled in page */ } },
+  { id: 'fullscreen', label: 'Toggle Fullscreen', category: 'View', icon: 'fullscreen', action: () => { document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen(); } },
+];

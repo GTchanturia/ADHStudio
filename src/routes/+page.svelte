@@ -11,6 +11,9 @@
   import LivePreview from '$lib/components/ui/LivePreview.svelte';
   import BulkImportModal from '$lib/components/tokens/BulkImportModal.svelte';
   import KeyboardShortcuts from '$lib/components/ui/KeyboardShortcuts.svelte';
+  import CommandPalette from '$lib/components/ui/CommandPalette.svelte';
+  import SettingsPanel from '$lib/components/ui/SettingsPanel.svelte';
+  import OnboardingGuide from '$lib/components/ui/OnboardingGuide.svelte';
 
   let projectId = $state(null);
   let showShortcuts = $state(false);
@@ -58,11 +61,38 @@
     function handleKeydown(e) {
       const mod = e.ctrlKey || e.metaKey;
 
-      // Ctrl+K or / — focus search
+      // Ctrl+K — command palette
       if (mod && e.key === 'k') {
         e.preventDefault();
-        const searchInput = document.querySelector('.search-input');
-        if (searchInput) searchInput.focus();
+        appState.commandPaletteOpen = !appState.commandPaletteOpen;
+      }
+
+      // Ctrl+, — settings
+      if (mod && e.key === ',') {
+        e.preventDefault();
+        appState.settingsOpen = !appState.settingsOpen;
+      }
+
+      // Ctrl+N — add token (handled in command palette)
+      if (mod && e.key === 'n') {
+        e.preventDefault();
+        appState.commandPaletteOpen = true;
+      }
+
+      // Ctrl+Shift+F — clear filters
+      if (mod && e.shiftKey && e.key === 'F') {
+        e.preventDefault();
+        clearFilters();
+      }
+
+      // / — focus search
+      if (e.key === '/' && !mod && !e.shiftKey) {
+        const active = document.activeElement;
+        if (active?.tagName !== 'INPUT' && active?.tagName !== 'TEXTAREA') {
+          e.preventDefault();
+          const searchInput = document.querySelector('.search-input');
+          if (searchInput) searchInput.focus();
+        }
       }
 
       // Ctrl+E — toggle export panel
@@ -91,8 +121,11 @@
         }
       }
 
-      // Escape — clear selection or close panels
+      // Escape — close panels in priority order
       if (e.key === 'Escape') {
+        if (appState.commandPaletteOpen) { appState.commandPaletteOpen = false; return; }
+        if (appState.settingsOpen) { appState.settingsOpen = false; return; }
+        if (appState.onboardingOpen) { appState.onboardingOpen = false; return; }
         if (showShortcuts) { showShortcuts = false; return; }
         if (showBulkImport) { showBulkImport = false; return; }
         if (appState.livePreviewOpen) { appState.livePreviewOpen = false; return; }
@@ -290,6 +323,27 @@
 
 {#if showShortcuts}
   <KeyboardShortcuts onclose={() => showShortcuts = false} />
+{/if}
+
+{#if appState.commandPaletteOpen}
+  <CommandPalette
+    onclose={() => appState.commandPaletteOpen = false}
+    onaction={(id) => {
+      if (id === 'add-token') { /* TODO: open add token flow */ }
+      else if (id === 'import-tokens') { showBulkImport = true; }
+      else if (id === 'create-set') { /* TODO: open create set flow */ }
+      else if (id === 'create-theme') { /* TODO: open create theme flow */ }
+      else if (id === 'show-shortcuts') { showShortcuts = true; }
+    }}
+  />
+{/if}
+
+{#if appState.settingsOpen}
+  <SettingsPanel onclose={() => appState.settingsOpen = false} />
+{/if}
+
+{#if appState.onboardingOpen}
+  <OnboardingGuide />
 {/if}
 
 <style>
