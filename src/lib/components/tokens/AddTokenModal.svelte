@@ -20,9 +20,9 @@
     if (!value.trim()) { error = 'Token value is required'; return; }
     if (!selectedSetId) { error = 'Select a token set'; return; }
 
-    // Validate dash-notation name
+    // Validate dash-notation name (allow single words too)
     if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(name)) {
-      error = 'Name must use dash-notation (e.g., color-primary-500)';
+      error = 'Name must be lowercase with dashes (e.g., color-primary-500)';
       return;
     }
 

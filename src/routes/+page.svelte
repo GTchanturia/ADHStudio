@@ -10,6 +10,9 @@
   import Notification from '$lib/components/ui/Notification.svelte';
   import LivePreview from '$lib/components/ui/LivePreview.svelte';
   import BulkImportModal from '$lib/components/tokens/BulkImportModal.svelte';
+  import AddTokenModal from '$lib/components/tokens/AddTokenModal.svelte';
+  import CreateSetModal from '$lib/components/tokens/CreateSetModal.svelte';
+  import CreateThemeModal from '$lib/components/tokens/CreateThemeModal.svelte';
   import KeyboardShortcuts from '$lib/components/ui/KeyboardShortcuts.svelte';
   import CommandPalette from '$lib/components/ui/CommandPalette.svelte';
   import SettingsPanel from '$lib/components/ui/SettingsPanel.svelte';
@@ -18,7 +21,9 @@
   let projectId = $state(null);
   let showShortcuts = $state(false);
   let showBulkImport = $state(false);
-  let searchFocused = $state(false);
+  let showAddToken = $state(false);
+  let showCreateSet = $state(false);
+  let showCreateTheme = $state(false);
 
   onMount(async () => {
     let { data: org } = await supabase
@@ -73,10 +78,10 @@
         appState.settingsOpen = !appState.settingsOpen;
       }
 
-      // Ctrl+N — add token (handled in command palette)
+      // Ctrl+N — add token
       if (mod && e.key === 'n') {
         e.preventDefault();
-        appState.commandPaletteOpen = true;
+        showAddToken = true;
       }
 
       // Ctrl+Shift+F — clear filters
@@ -126,6 +131,9 @@
         if (appState.commandPaletteOpen) { appState.commandPaletteOpen = false; return; }
         if (appState.settingsOpen) { appState.settingsOpen = false; return; }
         if (appState.onboardingOpen) { appState.onboardingOpen = false; return; }
+        if (showAddToken) { showAddToken = false; return; }
+        if (showCreateSet) { showCreateSet = false; return; }
+        if (showCreateTheme) { showCreateTheme = false; return; }
         if (showShortcuts) { showShortcuts = false; return; }
         if (showBulkImport) { showBulkImport = false; return; }
         if (appState.livePreviewOpen) { appState.livePreviewOpen = false; return; }
@@ -262,6 +270,11 @@
           token={selectedToken()}
           tokenMap={tokenMap()}
         />
+      </div>
+    {/if}
+
+    {#if selectedToken() && appState.inspectorOpen}
+      <div class="ai-panel">
         <AiAssistant tokenMap={tokenMap()} />
       </div>
     {/if}
@@ -321,6 +334,18 @@
   <BulkImportModal onclose={() => showBulkImport = false} />
 {/if}
 
+{#if showAddToken}
+  <AddTokenModal onclose={() => showAddToken = false} />
+{/if}
+
+{#if showCreateSet}
+  <CreateSetModal onclose={() => showCreateSet = false} {projectId} />
+{/if}
+
+{#if showCreateTheme}
+  <CreateThemeModal onclose={() => showCreateTheme = false} {projectId} />
+{/if}
+
 {#if showShortcuts}
   <KeyboardShortcuts onclose={() => showShortcuts = false} />
 {/if}
@@ -329,11 +354,11 @@
   <CommandPalette
     onclose={() => appState.commandPaletteOpen = false}
     onaction={(id) => {
-      if (id === 'add-token') { /* TODO: open add token flow */ }
-      else if (id === 'import-tokens') { showBulkImport = true; }
-      else if (id === 'create-set') { /* TODO: open create set flow */ }
-      else if (id === 'create-theme') { /* TODO: open create theme flow */ }
-      else if (id === 'show-shortcuts') { showShortcuts = true; }
+      if (id === 'add-token') showAddToken = true;
+      else if (id === 'import-tokens') showBulkImport = true;
+      else if (id === 'create-set') showCreateSet = true;
+      else if (id === 'create-theme') showCreateTheme = true;
+      else if (id === 'show-shortcuts') showShortcuts = true;
     }}
   />
 {/if}
@@ -364,6 +389,13 @@
   .right-panel {
     display: flex; flex-direction: column;
     width: 280px; min-width: 260px;
+    border-left: 1px solid var(--color-border);
+    background: var(--color-surface-1); overflow: hidden; flex-shrink: 0;
+  }
+
+  .ai-panel {
+    display: flex; flex-direction: column;
+    width: 260px; min-width: 240px;
     border-left: 1px solid var(--color-border);
     background: var(--color-surface-1); overflow: hidden; flex-shrink: 0;
   }

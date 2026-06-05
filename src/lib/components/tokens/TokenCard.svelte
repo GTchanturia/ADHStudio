@@ -1,10 +1,9 @@
 <script>
-  import { appState, selectToken, deleteToken, updateToken, notify } from '$lib/stores/platform.svelte.js';
+  import { appState, selectToken, deleteToken, updateToken, createToken, notify } from '$lib/stores/platform.svelte.js';
   import { resolveToken, isAlias } from '$lib/utils/aliases.js';
 
   let { token, tokenMap } = $props();
 
-  let hovering = $state(false);
   let editing = $state(false);
   let editValue = $state('');
   let saving = $state(false);
@@ -34,7 +33,7 @@
     try {
       await updateToken(token.id, { value: { value: editValue.trim() } });
       editing = false;
-    } catch (e) {
+    } catch {
       // error handled in store
     } finally {
       saving = false;
@@ -46,288 +45,263 @@
     editValue = '';
   }
 
-  function duplicateToken(e) {
+  async function duplicateToken(e) {
     e?.stopPropagation();
-    // Copy the token name to clipboard for now, with hint to paste in add modal
-    const data = `${token.name}: ${token.value?.value ?? token.value}`;
-    navigator.clipboard.writeText(data);
-    notify('Token data copied — use Add Token to create duplicate', 'info');
+    const suffix = '-copy';
+    const baseName = token.name;
+    const setId = token.token_set_id;
+    if (!setId) return;
+    try {
+      await createToken({
+        token_set_id: setId,
+        name: baseName + suffix,
+        type: token.type,
+        layer: token.layer,
+        value: { value: token.value?.value ?? token.value },
+        description: token.description ?? ''
+      });
+    } catch {
+      // error handled in store
+    }
   }
 </script>
 
 <div
-  class="token-card"
+  class="token-row"
   class:selected={isSelected}
   class:error={hasError}
-  class:editing
   onclick={() => { if (!editing) selectToken(token.id); }}
-  onmouseenter={() => hovering = true}
-  onmouseleave={() => hovering = false}
   role="button"
   tabindex="0"
   onkeydown={e => { if (e.key === 'Enter' && !editing) selectToken(token.id); }}
 >
-  <!-- Token type preview areas -->
-  {#if token.type === 'color'}
-    <div class="color-preview-area">
+  <!-- Color swatch -->
+  <div class="row-swatch">
+    {#if token.type === 'color'}
       {#if isValidHex(displayValue)}
-        <div class="color-swatch" style:background={displayValue}>
-          {#if hovering || isSelected}
-            <div class="color-hex-overlay">{displayValue}</div>
-          {/if}
-        </div>
+        <div class="swatch-color" style:background={displayValue}></div>
       {:else if isAliasRef && hasError}
-        <div class="color-swatch error-swatch">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-            <path d="M8 5v4M8 11h0" stroke="var(--color-error)" stroke-width="2" stroke-linecap="round"/>
-            <circle cx="8" cy="8" r="6.5" stroke="var(--color-error)" stroke-width="1"/>
+        <div class="swatch-error">
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+            <circle cx="5" cy="5" r="4" stroke="var(--color-error)" stroke-width="1"/>
+            <path d="M5 3v2M5 6.5v.5" stroke="var(--color-error)" stroke-width="1" stroke-linecap="round"/>
           </svg>
         </div>
       {:else}
-        <div class="color-swatch alias-swatch" style:background={isValidHex(resolved.value ?? '') ? resolved.value : undefined}>
+        <div class="swatch-color swatch-alias" style:background={isValidHex(resolved.value ?? '') ? resolved.value : undefined}>
           {#if isAliasRef}
-            <div class="alias-ref-label">{token.value?.value ?? token.value}</div>
+            <span class="swatch-alias-label">{token.value?.value ?? token.value}</span>
           {/if}
         </div>
       {/if}
-    </div>
-  {:else if token.type === 'spacing'}
-    <div class="spacing-preview-area">
-      <div class="spacing-visual" style:width="{Math.min(Math.max(parseFloat(displayValue) * 3, 8), 100)}%"></div>
-      <span class="spacing-label">{displayValue}</span>
-    </div>
-  {:else if token.type === 'typography'}
-    <div class="typography-preview-area">
-      <span class="typography-sample" style:font-size="{Math.min(parseFloat(displayValue) || 16, 48)}px">Aa</span>
-    </div>
-  {:else if token.type === 'border'}
-    <div class="border-preview-area">
-      <div class="border-swatch" style:border-radius={displayValue} style:border-width="{Math.min(parseFloat(displayValue) || 2, 8)}px"></div>
-    </div>
-  {:else if token.type === 'shadow'}
-    <div class="shadow-preview-area">
-      <div class="shadow-swatch" style:box-shadow={displayValue}></div>
-    </div>
-  {:else}
-    <div class="other-preview-area">
-      <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-        <rect x="3" y="3" width="14" height="14" rx="3" stroke="currentColor" stroke-width="1.2" opacity="0.4"/>
-      </svg>
-    </div>
-  {/if}
-
-  <div class="token-card-body">
-    <div class="token-name-row">
-      <span class="token-name" title={token.name}>{token.name}</span>
-      {#if isAliasRef}
-        <svg class="alias-icon" width="10" height="10" viewBox="0 0 10 10" fill="none" title="Alias reference">
-          <path d="M6 1l3 4-3 4M1 5h8" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+    {:else if token.type === 'spacing'}
+      <div class="swatch-type-icon type-spacing-bg">
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+          <path d="M1 5h8M1 3v4M9 3v4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
         </svg>
-      {/if}
-      {#if token.description}
-        <span class="description-indicator" title={token.description}>i</span>
-      {/if}
-    </div>
-
-    <div class="token-value-row">
-      {#if editing}
-        <div class="inline-edit">
-          <input
-            type="text"
-            bind:value={editValue}
-            class="inline-edit-input"
-            onkeydown={e => { if (e.key === 'Enter') saveEdit(); if (e.key === 'Escape') cancelEdit(); }}
-            onclick={e => e.stopPropagation()}
-            autofocus
-          />
-          <button class="inline-save" onclick={saveEdit} disabled={saving} title="Save">
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-              <path d="M2 6l3 3 5-5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-            </svg>
-          </button>
-        </div>
-      {:else if hasError}
-        <span class="value-error" title={resolved.error}>{resolved.error?.slice(0, 25)}...</span>
-      {:else}
-        <span class="token-value" title={String(displayValue)} ondblclick={startEditing} role="button" tabindex="-1">{displayValue}</span>
-      {/if}
-    </div>
-
-    <div class="token-meta-row">
-      <span class="token-badge type-{token.type ?? 'other'}">{token.type}</span>
-      <span class="token-badge layer-{token.layer ?? 'core'}">{token.layer}</span>
-    </div>
+      </div>
+    {:else if token.type === 'typography'}
+      <div class="swatch-type-icon type-typography-bg">
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+          <path d="M2 2h6M5 2v6M3 8h4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+        </svg>
+      </div>
+    {:else if token.type === 'border'}
+      <div class="swatch-type-icon type-border-bg">
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+          <rect x="1" y="1" width="8" height="8" rx="1.5" stroke="currentColor" stroke-width="1.4"/>
+        </svg>
+      </div>
+    {:else if token.type === 'shadow'}
+      <div class="swatch-type-icon type-shadow-bg">
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+          <rect x="2" y="2" width="6" height="6" rx="1" fill="currentColor" opacity="0.3"/>
+          <rect x="1" y="1" width="6" height="6" rx="1" stroke="currentColor" stroke-width="1"/>
+        </svg>
+      </div>
+    {:else}
+      <div class="swatch-type-icon type-other-bg">
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+          <rect x="2" y="2" width="6" height="6" rx="1.5" stroke="currentColor" stroke-width="1" opacity="0.6"/>
+        </svg>
+      </div>
+    {/if}
   </div>
 
-  <!-- Hover action bar -->
-  {#if hovering && !editing}
-    <div class="token-card-actions animate-fade-in">
-      <button class="card-action-btn" onclick={duplicateToken} title="Duplicate">
-        <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
-          <rect x="3" y="3" width="7" height="7" rx="1" stroke="currentColor" stroke-width="1.1"/>
-          <path d="M7 3V2a1 1 0 00-1-1H2a1 1 0 00-1 1v4a1 1 0 001 1h1" stroke="currentColor" stroke-width="1.1"/>
-        </svg>
-      </button>
-      <button class="card-action-btn" onclick={startEditing} title="Edit value">
-        <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
-          <path d="M7 2l2 2-5 5H2V7l5-5z" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round"/>
-        </svg>
-      </button>
-      <button class="card-action-btn danger" onclick={e => { e.stopPropagation(); deleteToken(token.id); }} title="Delete">
-        <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
-          <path d="M2 2l7 7M9 2l-7 7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
-        </svg>
-      </button>
-    </div>
+  <!-- Token name -->
+  <span class="row-name" title={token.name}>
+    {#if isAliasRef}
+      <svg class="alias-icon" width="10" height="10" viewBox="0 0 10 10" fill="none">
+        <path d="M6 1l3 4-3 4M1 5h8" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    {/if}
+    {token.name}
+  </span>
+
+  <!-- Description indicator -->
+  {#if token.description}
+    <span class="row-desc-indicator" title={token.description}>i</span>
   {/if}
+
+  <!-- Value -->
+  <div class="row-value-cell">
+    {#if editing}
+      <div class="inline-edit">
+        <input
+          type="text"
+          bind:value={editValue}
+          class="inline-edit-input"
+          onkeydown={e => { if (e.key === 'Enter') saveEdit(); if (e.key === 'Escape') cancelEdit(); }}
+          onclick={e => e.stopPropagation()}
+          autofocus
+        />
+        <button class="inline-save" onclick={saveEdit} disabled={saving} title="Save">
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+            <path d="M2 5l2 2 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+      </div>
+    {:else if hasError}
+      <span class="value-error" title={resolved.error}>{resolved.error?.slice(0, 30)}</span>
+    {:else}
+      <span class="row-value" title={String(displayValue)} ondblclick={startEditing} role="button" tabindex="-1">{displayValue}</span>
+    {/if}
+  </div>
+
+  <!-- Layer badge -->
+  <span class="row-badge layer-{token.layer ?? 'core'}">{token.layer}</span>
+
+  <!-- Type badge -->
+  <span class="row-badge type-{token.type ?? 'other'}">{token.type}</span>
+
+  <!-- Actions -->
+  <div class="row-actions">
+    <button class="row-action-btn" onclick={duplicateToken} title="Duplicate token">
+      <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
+        <rect x="3" y="3" width="7" height="7" rx="1" stroke="currentColor" stroke-width="1.1"/>
+        <path d="M7 3V2a1 1 0 00-1-1H2a1 1 0 00-1 1v4a1 1 0 001 1h1" stroke="currentColor" stroke-width="1.1"/>
+      </svg>
+    </button>
+    <button class="row-action-btn" onclick={startEditing} title="Edit value">
+      <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
+        <path d="M7 2l2 2-5 5H2V7l5-5z" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round"/>
+      </svg>
+    </button>
+    <button class="row-action-btn danger" onclick={e => { e.stopPropagation(); deleteToken(token.id); }} title="Delete">
+      <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
+        <path d="M2 2l7 7M9 2l-7 7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+      </svg>
+    </button>
+  </div>
 </div>
 
 <style>
-  .token-card {
-    position: relative;
-    background: var(--color-surface-2);
-    border: 1px solid var(--color-border);
-    border-radius: 8px;
-    cursor: pointer;
-    transition: all 0.15s ease;
-    overflow: hidden;
+  .token-row {
     display: flex;
-    flex-direction: column;
-    height: 140px;
+    align-items: center;
+    gap: 10px;
+    padding: 0 16px 0 12px;
+    height: 36px;
+    border-bottom: 1px solid var(--color-border-subtle);
+    cursor: pointer;
+    transition: background 0.1s;
+    background: transparent;
   }
 
-  .token-card:hover {
-    border-color: var(--color-surface-5);
-    background: var(--color-surface-3);
-    transform: translateY(-1px);
-    box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+  .token-row:hover {
+    background: var(--color-surface-2);
   }
 
-  .token-card.selected {
-    border-color: var(--color-accent);
-    background: var(--color-surface-3);
-    box-shadow: 0 0 0 1px var(--color-accent-muted), 0 4px 16px rgba(59,130,246,0.1);
+  .token-row.selected {
+    background: var(--color-accent-muted);
   }
 
-  .token-card.error { border-color: rgba(239,68,68,0.4); }
+  .token-row.error {
+    border-bottom-color: rgba(239,68,68,0.15);
+  }
 
-  .color-preview-area { flex-shrink: 0; height: 56px; }
+  /* Swatch */
+  .row-swatch {
+    width: 24px;
+    height: 24px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
 
-  .color-swatch {
-    width: 100%; height: 100%;
+  .swatch-color {
+    width: 24px;
+    height: 24px;
+    border-radius: 4px;
+    border: 1px solid rgba(255,255,255,0.08);
     position: relative;
-    display: flex; align-items: center; justify-content: center;
-  }
-
-  .color-hex-overlay {
-    position: absolute; inset: 0;
-    display: flex; align-items: center; justify-content: center;
-    background: rgba(0,0,0,0.5);
-    font-size: 11px; font-family: var(--font-mono);
-    color: white; letter-spacing: 0.05em;
-    backdrop-filter: blur(2px);
-  }
-
-  .alias-swatch {
-    background: linear-gradient(135deg, var(--color-surface-4), var(--color-surface-5));
-  }
-
-  .alias-ref-label {
-    font-size: 9px; font-family: var(--font-mono);
-    color: var(--color-text-tertiary);
-    background: rgba(0,0,0,0.4); padding: 1px 6px; border-radius: 3px;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 90%;
-  }
-
-  .error-swatch { background: rgba(239,68,68,0.1); }
-
-  .placeholder-swatch {
-    background: linear-gradient(135deg, var(--color-surface-4), var(--color-surface-5));
-  }
-
-  .spacing-preview-area {
-    flex-shrink: 0; height: 56px;
-    display: flex; align-items: center; gap: 8px;
-    padding: 0 12px;
-    background: var(--color-surface-3);
     overflow: hidden;
   }
 
-  .spacing-visual {
-    height: 4px; max-width: 100%;
-    background: var(--color-token-spacing); border-radius: 2px;
-    opacity: 0.8;
+  .swatch-alias {
+    background: linear-gradient(135deg, var(--color-surface-4), var(--color-surface-5)) !important;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
 
-  .spacing-label {
-    font-size: 10px; font-family: var(--font-mono);
-    color: var(--color-text-tertiary); white-space: nowrap;
-  }
-
-  .typography-preview-area {
-    flex-shrink: 0; height: 56px;
-    display: flex; align-items: center; justify-content: center;
-    background: var(--color-surface-3); overflow: hidden;
-  }
-
-  .typography-sample {
-    color: var(--color-token-typography);
-    font-weight: 700; line-height: 1;
-    max-width: 100%; overflow: hidden;
-  }
-
-  .border-preview-area {
-    flex-shrink: 0; height: 56px;
-    display: flex; align-items: center; justify-content: center;
-    background: var(--color-surface-3); padding: 12px;
-  }
-
-  .border-swatch {
-    width: 40px; height: 40px;
-    border: 3px solid var(--color-token-border);
-    border-style: solid;
-    transition: all 0.15s;
-  }
-
-  .shadow-preview-area {
-    flex-shrink: 0; height: 56px;
-    display: flex; align-items: center; justify-content: center;
-    background: var(--color-surface-0); padding: 12px;
-  }
-
-  .shadow-swatch {
-    width: 36px; height: 36px;
-    border-radius: 6px;
-    background: var(--color-surface-4);
-  }
-
-  .other-preview-area {
-    flex-shrink: 0; height: 56px;
-    display: flex; align-items: center; justify-content: center;
-    background: var(--color-surface-3); color: var(--color-text-tertiary);
-  }
-
-  .token-card-body {
-    padding: 8px 10px;
-    display: flex; flex-direction: column;
-    gap: 3px; flex: 1; min-height: 0;
-  }
-
-  .token-name-row {
-    display: flex; align-items: center; gap: 4px;
-  }
-
-  .token-name {
-    font-size: 11px; font-weight: 600;
-    color: var(--color-text-primary);
+  .swatch-alias-label {
+    font-size: 7px;
     font-family: var(--font-mono);
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1;
+    color: var(--color-text-tertiary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 100%;
+    padding: 0 2px;
+  }
+
+  .swatch-error {
+    width: 24px;
+    height: 24px;
+    border-radius: 4px;
+    background: rgba(239,68,68,0.1);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .swatch-type-icon {
+    width: 24px;
+    height: 24px;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .type-spacing-bg { background: rgba(52,211,153,0.12); color: var(--color-token-spacing); }
+  .type-typography-bg { background: rgba(167,139,250,0.12); color: var(--color-token-typography); }
+  .type-border-bg { background: rgba(251,191,36,0.12); color: var(--color-token-border); }
+  .type-shadow-bg { background: rgba(96,165,250,0.12); color: var(--color-token-shadow); }
+  .type-other-bg { background: rgba(148,163,184,0.12); color: var(--color-token-other); }
+
+  /* Name */
+  .row-name {
+    font-size: 12px;
+    font-weight: 600;
+    font-family: var(--font-mono);
+    color: var(--color-text-primary);
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    display: flex;
+    align-items: center;
+    gap: 4px;
   }
 
   .alias-icon { color: var(--color-accent); flex-shrink: 0; }
 
-  .description-indicator {
-    width: 12px; height: 12px; border-radius: 50%;
+  .row-desc-indicator {
+    width: 14px; height: 14px; border-radius: 50%;
     background: var(--color-surface-4);
     color: var(--color-text-tertiary);
     font-size: 8px; font-weight: 700; font-style: italic;
@@ -335,87 +309,113 @@
     flex-shrink: 0;
   }
 
-  .token-value-row { min-height: 18px; }
-
-  .token-value {
-    font-size: 10px; color: var(--color-text-secondary);
-    font-family: var(--font-mono);
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-    display: block; cursor: text;
+  /* Value */
+  .row-value-cell {
+    min-width: 100px;
+    max-width: 180px;
+    flex-shrink: 0;
   }
 
-  .token-value:hover { color: var(--color-accent); }
+  .row-value {
+    font-size: 11px;
+    color: var(--color-text-secondary);
+    font-family: var(--font-mono);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    display: block;
+    cursor: text;
+  }
+
+  .row-value:hover { color: var(--color-accent); }
 
   .value-error {
-    font-size: 10px; color: var(--color-error);
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-size: 11px;
+    color: var(--color-error);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     display: block;
   }
 
   .inline-edit {
-    display: flex; align-items: center; gap: 4px;
+    display: flex;
+    align-items: center;
+    gap: 3px;
   }
 
   .inline-edit-input {
-    flex: 1;
+    width: 100%;
     background: var(--color-surface-4);
     border: 1px solid var(--color-accent);
     border-radius: 3px;
     padding: 2px 6px;
-    font-size: 10px; font-family: var(--font-mono);
+    font-size: 11px;
+    font-family: var(--font-mono);
     color: var(--color-text-primary);
-    outline: none; min-width: 0;
+    outline: none;
+    min-width: 0;
   }
 
   .inline-save {
-    display: flex; align-items: center; justify-content: center;
-    width: 18px; height: 18px; border-radius: 3px;
-    background: var(--color-accent-muted); border: none;
-    color: var(--color-accent); cursor: pointer;
-    flex-shrink: 0; transition: all 0.12s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    border-radius: 3px;
+    background: var(--color-accent-muted);
+    border: none;
+    color: var(--color-accent);
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: all 0.12s;
   }
 
   .inline-save:hover { background: var(--color-accent); color: white; }
   .inline-save:disabled { opacity: 0.4; }
 
-  .token-meta-row {
-    display: flex; gap: 4px; flex-wrap: wrap; margin-top: auto;
+  /* Badges */
+  .row-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    flex-shrink: 0;
   }
 
-  .token-badge {
-    display: inline-flex; align-items: center;
-    padding: 1px 5px; border-radius: 3px;
-    font-size: 9px; font-weight: 700;
-    letter-spacing: 0.06em; text-transform: uppercase;
+  /* Actions */
+  .row-actions {
+    display: flex;
+    gap: 2px;
+    opacity: 0;
+    transition: opacity 0.12s;
+    flex-shrink: 0;
   }
 
-  .type-color { color: var(--color-token-color); background: rgba(248,113,113,0.12); }
-  .type-typography { color: var(--color-token-typography); background: rgba(167,139,250,0.12); }
-  .type-spacing { color: var(--color-token-spacing); background: rgba(52,211,153,0.12); }
-  .type-border { color: var(--color-token-border); background: rgba(251,191,36,0.12); }
-  .type-shadow { color: var(--color-token-shadow); background: rgba(96,165,250,0.12); }
-  .type-other { color: var(--color-token-other); background: rgba(148,163,184,0.12); }
-
-  .layer-core { color: var(--color-layer-core); background: rgba(100,116,139,0.15); }
-  .layer-semantic { color: var(--color-layer-semantic); background: rgba(139,92,246,0.15); }
-  .layer-component { color: var(--color-layer-component); background: rgba(6,182,212,0.15); }
-
-  .token-card-actions {
-    position: absolute; top: 4px; right: 4px;
-    display: flex; gap: 2px;
+  .token-row:hover .row-actions,
+  .token-row.selected .row-actions {
+    opacity: 1;
   }
 
-  .card-action-btn {
-    display: flex; align-items: center; justify-content: center;
-    width: 20px; height: 20px; border-radius: 4px;
-    border: none; cursor: pointer; transition: all 0.12s;
-    background: rgba(15,15,16,0.8); color: var(--color-text-secondary);
-    backdrop-filter: blur(4px);
+  .row-action-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 4px;
+    border: none;
+    cursor: pointer;
+    transition: all 0.1s;
+    background: transparent;
+    color: var(--color-text-tertiary);
   }
 
-  .card-action-btn:hover { color: var(--color-text-primary); background: var(--color-surface-4); }
-
-  .card-action-btn.danger:hover {
-    background: rgba(239,68,68,0.2); color: var(--color-error);
-  }
+  .row-action-btn:hover { background: var(--color-surface-4); color: var(--color-text-primary); }
+  .row-action-btn.danger:hover { background: rgba(239,68,68,0.15); color: var(--color-error); }
 </style>

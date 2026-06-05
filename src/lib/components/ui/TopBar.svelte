@@ -60,7 +60,7 @@
       </svg>
       <input
         type="text"
-        placeholder="Search tokens... (name, value)"
+        placeholder="Search tokens... (Ctrl+K)"
         bind:value={appState.searchQuery}
         class="search-input"
       />
