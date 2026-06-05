@@ -126,8 +126,9 @@
         </div>
 
         <div class="form-group col-span-2">
-          <label class="form-label">Value <span class="label-hint">or {"{alias.path}"}</span></label>
+          <label class="form-label" for="token-value">Value <span class="label-hint">or {"{alias.path}"}</span></label>
           <input
+            id="token-value"
             type="text"
             bind:value={value}
             placeholder={valuePlaceholder[type]}

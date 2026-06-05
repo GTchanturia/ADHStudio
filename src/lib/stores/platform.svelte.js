@@ -18,6 +18,7 @@ export const appState = $state({
   selectedSetId: null,
   inspectorOpen: true,
   exportPanelOpen: false,
+  livePreviewOpen: false,
   searchQuery: '',
   filterType: 'all',
   filterLayer: 'all',
@@ -50,7 +51,8 @@ export function filteredTokens() {
     const q = appState.searchQuery.toLowerCase();
     tokens = tokens.filter(t =>
       t.name.toLowerCase().includes(q) ||
-      t.description?.toLowerCase().includes(q)
+      t.description?.toLowerCase().includes(q) ||
+      String(t.value?.value ?? t.value ?? '').toLowerCase().includes(q)
     );
   }
   return tokens;
@@ -94,16 +96,32 @@ export async function createTokenSet(name, projectId) {
     .select('*, tokens(*)')
     .single();
 
-  if (error) throw error;
+  if (error) { notify(error.message, 'error'); throw error; }
   appState.tokenSets = [...appState.tokenSets, data];
   appState.activeSetIds = [...appState.activeSetIds, data.id];
+  notify('Token set created');
   return data;
 }
 
 export async function deleteTokenSet(setId) {
-  await supabase.from('token_sets').delete().eq('id', setId);
+  const { error } = await supabase.from('token_sets').delete().eq('id', setId);
+  if (error) { notify(error.message, 'error'); throw error; }
   appState.tokenSets = appState.tokenSets.filter(s => s.id !== setId);
   appState.activeSetIds = appState.activeSetIds.filter(id => id !== setId);
+  if (appState.selectedSetId === setId) appState.selectedSetId = null;
+  notify('Token set deleted', 'info');
+}
+
+export async function renameTokenSet(setId, newName) {
+  const { data, error } = await supabase
+    .from('token_sets')
+    .update({ name: newName, updated_at: new Date().toISOString() })
+    .eq('id', setId)
+    .select('*, tokens(*)')
+    .single();
+  if (error) { notify(error.message, 'error'); throw error; }
+  appState.tokenSets = appState.tokenSets.map(s => s.id === setId ? data : s);
+  notify('Token set renamed');
 }
 
 export async function createToken(tokenData) {
@@ -113,7 +131,7 @@ export async function createToken(tokenData) {
     .select('*')
     .single();
 
-  if (error) throw error;
+  if (error) { notify(error.message, 'error'); throw error; }
 
   appState.tokenSets = appState.tokenSets.map(s =>
     s.id === tokenData.token_set_id
@@ -122,6 +140,32 @@ export async function createToken(tokenData) {
   );
 
   notify('Token created');
+  return data;
+}
+
+export async function bulkCreateTokens(tokenDataArray) {
+  const { data, error } = await supabase
+    .from('tokens')
+    .insert(tokenDataArray)
+    .select('*');
+
+  if (error) { notify(error.message, 'error'); throw error; }
+
+  // Group returned tokens by set and update state
+  const bySet = new Map();
+  for (const t of (data ?? [])) {
+    if (!bySet.has(t.token_set_id)) bySet.set(t.token_set_id, []);
+    bySet.get(t.token_set_id).push(t);
+  }
+
+  appState.tokenSets = appState.tokenSets.map(s => {
+    const newTokens = bySet.get(s.id);
+    return newTokens
+      ? { ...s, tokens: [...(s.tokens ?? []), ...newTokens] }
+      : s;
+  });
+
+  notify(`${data?.length ?? 0} tokens imported`);
   return data;
 }
 
@@ -155,6 +199,53 @@ export async function deleteToken(tokenId) {
   notify('Token deleted', 'info');
 }
 
+// ─── Theme CRUD ────────────────────────────────────────────────────────────────
+
+export async function createTheme(projectId, name) {
+  const { data, error } = await supabase
+    .from('themes')
+    .insert({ project_id: projectId, name, token_set_ids: [...appState.activeSetIds] })
+    .select()
+    .single();
+
+  if (error) { notify(error.message, 'error'); throw error; }
+  appState.themes = [...appState.themes, data];
+  appState.activeThemeId = data.id;
+  notify('Theme created');
+  return data;
+}
+
+export async function updateTheme(themeId, updates) {
+  const { data, error } = await supabase
+    .from('themes')
+    .update({ ...updates, updated_at: new Date().toISOString() })
+    .eq('id', themeId)
+    .select()
+    .single();
+
+  if (error) { notify(error.message, 'error'); throw error; }
+  appState.themes = appState.themes.map(t => t.id === themeId ? data : t);
+  notify('Theme updated');
+  return data;
+}
+
+export async function deleteTheme(themeId) {
+  const { error } = await supabase.from('themes').delete().eq('id', themeId);
+  if (error) { notify(error.message, 'error'); throw error; }
+  appState.themes = appState.themes.filter(t => t.id !== themeId);
+  if (appState.activeThemeId === themeId) {
+    appState.activeThemeId = appState.themes[0]?.id ?? null;
+  }
+  notify('Theme deleted', 'info');
+}
+
+export async function saveCurrentTheme() {
+  if (!appState.activeThemeId) return;
+  return updateTheme(appState.activeThemeId, { token_set_ids: [...appState.activeSetIds] });
+}
+
+// ─── UI Actions ───────────────────────────────────────────────────────────────
+
 export function selectToken(tokenId) {
   appState.selectedTokenId = tokenId;
   if (!appState.inspectorOpen) appState.inspectorOpen = true;
@@ -172,7 +263,13 @@ export function applyTheme(themeId) {
   const theme = appState.themes.find(t => t.id === themeId);
   if (!theme) return;
   appState.activeThemeId = themeId;
-  appState.activeSetIds = theme.token_set_ids ?? [];
+  appState.activeSetIds = [...(theme.token_set_ids ?? [])];
+}
+
+export function clearFilters() {
+  appState.searchQuery = '';
+  appState.filterType = 'all';
+  appState.filterLayer = 'all';
 }
 
 export function notify(message, type = 'success') {

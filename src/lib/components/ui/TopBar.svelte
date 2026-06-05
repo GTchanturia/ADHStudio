@@ -1,11 +1,32 @@
 <script>
-  import { appState, applyTheme } from '$lib/stores/platform.svelte.js';
+  import { appState, applyTheme, createTheme, saveCurrentTheme, deleteTheme, notify } from '$lib/stores/platform.svelte.js';
 
   let { projectName = 'Design Tokens' } = $props();
   let themeSwitcherOpen = $state(false);
+  let newThemeName = $state('');
+  let addingTheme = $state(false);
 
   const tokenTypes = ['all', 'color', 'typography', 'spacing', 'border', 'shadow'];
   const tokenLayers = ['all', 'core', 'semantic', 'component'];
+
+  async function handleCreateTheme() {
+    if (!newThemeName.trim() || !appState.project?.id) return;
+    try {
+      await createTheme(appState.project.id, newThemeName.trim());
+      newThemeName = '';
+      addingTheme = false;
+    } catch (e) {
+      // error handled in store
+    }
+  }
+
+  async function handleDeleteTheme(themeId) {
+    try {
+      await deleteTheme(themeId);
+    } catch (e) {
+      // error handled in store
+    }
+  }
 </script>
 
 <header class="topbar">
@@ -94,20 +115,66 @@
           {#if appState.themes.length === 0}
             <div class="theme-empty">No themes configured</div>
           {:else}
-            {#each appState.themes as theme}
-              <button
-                class="theme-option"
-                class:selected={appState.activeThemeId === theme.id}
-                onclick={() => { applyTheme(theme.id); themeSwitcherOpen = false; }}
-              >
-                <span class="theme-option-check">
-                  {#if appState.activeThemeId === theme.id}✓{/if}
-                </span>
-                <span>{theme.name}</span>
-                <span class="theme-set-count">{theme.token_set_ids?.length ?? 0} sets</span>
-              </button>
+            {#each appState.themes as theme (theme.id)}
+              <div class="theme-option-row">
+                <button
+                  class="theme-option"
+                  class:selected={appState.activeThemeId === theme.id}
+                  onclick={() => { applyTheme(theme.id); themeSwitcherOpen = false; }}
+                >
+                  <span class="theme-option-check">
+                    {#if appState.activeThemeId === theme.id}✓{/if}
+                  </span>
+                  <span>{theme.name}</span>
+                  <span class="theme-set-count">{theme.token_set_ids?.length ?? 0} sets</span>
+                </button>
+                <button
+                  class="theme-delete-btn"
+                  onclick={() => handleDeleteTheme(theme.id)}
+                  title="Delete theme"
+                >
+                  <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                    <path d="M2 2l6 6M8 2l-6 6" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+                  </svg>
+                </button>
+              </div>
             {/each}
           {/if}
+
+          <div class="theme-dropdown-divider"></div>
+
+          {#if addingTheme}
+            <div class="theme-add-form">
+              <input
+                type="text"
+                bind:value={newThemeName}
+                placeholder="Theme name..."
+                class="theme-add-input"
+                onkeydown={e => e.key === 'Enter' && handleCreateTheme()}
+                autofocus
+              />
+              <div class="theme-add-actions">
+                <button class="btn-primary btn-xs" onclick={handleCreateTheme}>Save</button>
+                <button class="btn-ghost btn-xs" onclick={() => { addingTheme = false; newThemeName = ''; }}>Cancel</button>
+              </div>
+            </div>
+          {:else}
+            <button class="theme-action-btn" onclick={() => addingTheme = true}>
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                <path d="M6 1v10M1 6h10" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+              </svg>
+              New Theme
+            </button>
+            {#if appState.activeThemeId}
+              <button class="theme-action-btn" onclick={saveCurrentTheme}>
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                  <path d="M2 6l3 3 5-5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+                Save Current
+              </button>
+            {/if}
+          {/if}
+
           <div class="theme-dropdown-divider"></div>
           <div class="theme-active-sets-label">Active Sets</div>
           {#each appState.tokenSets as set}
@@ -125,12 +192,26 @@
     <button
       class="topbar-action-btn"
       onclick={() => appState.exportPanelOpen = !appState.exportPanelOpen}
+      class:active={appState.exportPanelOpen}
     >
       <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
         <path d="M7 1v8M4 6l3 3 3-3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
         <path d="M1 10v2a1 1 0 001 1h10a1 1 0 001-1v-2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
       </svg>
       Export
+    </button>
+
+    <!-- Live Preview button -->
+    <button
+      class="topbar-action-btn"
+      onclick={() => appState.livePreviewOpen = !appState.livePreviewOpen}
+      class:active={appState.livePreviewOpen}
+    >
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+        <path d="M1 7a6 6 0 0112 0 6 6 0 01-12 0z" stroke="currentColor" stroke-width="1.2"/>
+        <circle cx="7" cy="7" r="2.5" fill="currentColor" opacity="0.3"/>
+      </svg>
+      Preview
     </button>
 
     <!-- Inspector toggle -->
@@ -370,35 +451,78 @@
     font-style: italic;
   }
 
+  .theme-option-row {
+    display: flex; align-items: center; gap: 0;
+  }
+
   .theme-option {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    width: 100%;
-    padding: 8px 12px;
-    background: transparent;
-    border: none;
-    color: var(--color-text-primary);
-    font-size: 12px;
-    cursor: pointer;
-    transition: background 0.12s;
-    text-align: left;
+    display: flex; align-items: center;
+    gap: 8px; flex: 1;
+    padding: 8px 12px; background: transparent;
+    border: none; color: var(--color-text-primary);
+    font-size: 12px; cursor: pointer;
+    transition: background 0.12s; text-align: left;
   }
 
   .theme-option:hover { background: var(--color-surface-3); }
   .theme-option.selected { background: var(--color-accent-muted); }
 
-  .theme-option-check {
-    width: 14px;
-    color: var(--color-accent);
-    font-size: 11px;
+  .theme-option-check { width: 14px; color: var(--color-accent); font-size: 11px; }
+
+  .theme-set-count { margin-left: auto; font-size: 10px; color: var(--color-text-tertiary); }
+
+  .theme-delete-btn {
+    display: flex; align-items: center; justify-content: center;
+    width: 24px; height: 24px; border-radius: 4px;
+    background: transparent; border: none;
+    color: var(--color-text-tertiary); cursor: pointer;
+    transition: all 0.12s; flex-shrink: 0; margin-right: 4px;
   }
 
-  .theme-set-count {
-    margin-left: auto;
-    font-size: 10px;
-    color: var(--color-text-tertiary);
+  .theme-delete-btn:hover { background: rgba(239,68,68,0.15); color: var(--color-error); }
+
+  .theme-action-btn {
+    display: flex; align-items: center; gap: 6px;
+    width: 100%; padding: 7px 12px; background: transparent;
+    border: none; color: var(--color-text-secondary);
+    font-size: 11px; font-weight: 600; cursor: pointer;
+    transition: all 0.12s; text-align: left;
   }
+
+  .theme-action-btn:hover { color: var(--color-accent); background: var(--color-surface-3); }
+
+  .theme-add-form {
+    padding: 8px 12px;
+  }
+
+  .theme-add-input {
+    width: 100%; background: var(--color-surface-3);
+    border: 1px solid var(--color-border); border-radius: 4px;
+    padding: 5px 8px; font-size: 11px;
+    color: var(--color-text-primary); outline: none;
+    box-sizing: border-box; margin-bottom: 6px;
+  }
+
+  .theme-add-input:focus { border-color: var(--color-accent); }
+
+  .theme-add-actions { display: flex; gap: 4px; }
+
+  .btn-primary {
+    background: var(--color-accent); color: white; border: none;
+    border-radius: 4px; cursor: pointer; font-size: 11px;
+    padding: 4px 10px; transition: all 0.15s; font-weight: 600;
+  }
+
+  .btn-primary:hover { background: var(--color-accent-hover); }
+
+  .btn-ghost {
+    background: transparent; color: var(--color-text-secondary);
+    border: 1px solid var(--color-border); border-radius: 4px;
+    cursor: pointer; font-size: 11px; padding: 4px 10px; transition: all 0.15s;
+  }
+
+  .btn-ghost:hover { background: var(--color-surface-3); color: var(--color-text-primary); }
+  .btn-xs { padding: 3px 8px; font-size: 10px; }
 
   .theme-dropdown-divider {
     height: 1px;
